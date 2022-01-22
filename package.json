@@ -1,0 +1,19 @@
+{
+  "name": "ravendiscordbot",
+  "version": "1.0.0",
+  "description": "The Discord Bot for the Ravencoin Community Server",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kralverde/RavenDiscordBot.git"
+  },
+  "author": "kralverde",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kralverde/RavenDiscordBot/issues"
+  },
+  "homepage": "https://github.com/kralverde/RavenDiscordBot#readme"
+}
