@@ -15,5 +15,20 @@
   "bugs": {
     "url": "https://github.com/kralverde/RavenDiscordBot/issues"
   },
-  "homepage": "https://github.com/kralverde/RavenDiscordBot#readme"
+  "homepage": "https://github.com/kralverde/RavenDiscordBot#readme",
+  "dependencies": {
+    "@discordjs/builders": "^0.11.0",
+    "@discordjs/rest": "^0.2.0-canary.0",
+    "async-mutex": "^0.3.2",
+    "bip32": "^3.0.1",
+    "bip39": "^3.0.4",
+    "bitcoinjs-lib": "^6.0.1",
+    "discord-api-types": "^0.26.1",
+    "discord.js": "^13.6.0",
+    "dotenv": "^14.2.0",
+    "electrum-client": "github:kralverde/node-electrum-ravencoin-client",
+    "level": "^7.0.1",
+    "lru-cache-node": "^1.1.0",
+    "tiny-secp256k1": "^2.2.0"
+  }
 }
