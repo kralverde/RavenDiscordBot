@@ -22,7 +22,7 @@
     "async-mutex": "^0.3.2",
     "bip32": "^3.0.1",
     "bip39": "^3.0.4",
-    "bitcoinjs-lib": "^6.0.1",
+    "bitcoinjs-lib": "github:kralverde/bitcoinjs-lib",
     "discord-api-types": "^0.26.1",
     "discord.js": "^13.6.0",
     "dotenv": "^14.2.0",

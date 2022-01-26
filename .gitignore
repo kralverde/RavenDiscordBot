@@ -2,3 +2,4 @@ package-lock.json
 requests
 state_db
 node_modules
+.env
