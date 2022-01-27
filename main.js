@@ -48,42 +48,9 @@ const RAVENCOIN_TESTNET = {
 const MAIN_ASSET = 'COMMUNITY_TEST';
 const COIN = 100000000;
 
-/* Electrum JSON RPC */
-/*
-const elc = new ElectrumCli(50002, 'rvn4lyfe.com', 'tls');
-
-elc.subscribe.on('blockchain.headers.subscribe', (res) => console.log(res));
-elc.connect()
-    .then(() => elc.server_version("TESTING", "1.9"))
-    .then((ver) => console.log(ver))
-    .then(() => elc.blockchain_headers_subscribe())
-    .then((res) => console.log(res))
-    .then(() => elc.close());
-*/
-/* END JSON RPC */
-
-/* CRYPTO */
-/*
-const child = root
-    .deriveHardened(44)
-    .deriveHardened(175)
-    .deriveHardened(0)
-    .derive(0)
-    .derive(0);
-
-const { address } = bitcoin.payments.p2pkh({
-    pubkey: child.publicKey,
-    network: RAVENCOIN
-});
-
-
-let script = bitcoin.address.toOutputScript(address, RAVENCOIN);
-
-*/
-
-/* Definitions */
-
 const network = RAVENCOIN_TESTNET;
+
+const broadcast_semaphore = new mutex.Mutex();
 
 function script_to_scripthash(script) {
     return crypto.createHash('sha256').update(script).digest('hex').slice(0, 64).match(/[a-fA-F0-9]{2}/g).reverse().join('');
@@ -289,7 +256,14 @@ if (!fs.existsSync(server_info)) {
     }
 
     function remove_asset_request(asset) {
+        const data = _waiting_assets[asset];
+        if (not (data)) {
+            return;
+        }
         delete _waiting_assets[asset];
+        delete scripthash_to_asset[data.recv.scripthash];
+        delete snowflake_to_asset[data.requestor];
+        delete timestamp_to_asset[data.timestamp];
         fs.unlinkSync(uncompleted_requests_dir+'/'+asset);
     }
 
@@ -305,6 +279,9 @@ if (!fs.existsSync(server_info)) {
 
     async function handle_scripthash_and_amount(scripthash, confirmed, unconfirmed) {
         try {
+            if (!(scripthash in scripthash_to_asset)) {
+                return;
+            }
             const asset = scripthash_to_asset[scripthash];
             const data = _waiting_assets[asset];
 
@@ -322,191 +299,194 @@ if (!fs.existsSync(server_info)) {
             }
 
             if (confirmed >= (data.amount * COIN)) {
+                //Handle atomically to ensure quick transactions are still good (i.e. prevout still in mempool)
+                broadcast_semaphore.runExclusive(async () => {
+                    const psbt = new bitcoin.Psbt({ network: network });
+                    let sats_avail = 0;
+                    let num_internal_inputs = 0;
+                    let num_external_inputs = 0;
 
-                const psbt = new bitcoin.Psbt({ network: network });
-                let sats_avail = 0;
-                let num_internal_inputs = 0;
-                let num_external_inputs = 0;
-
-                var current_asset_address = asset_generator.get_current_address();
-                var next_asset_address_info = await asset_generator.generate_next_address();
-                var current_internal_address = internal_generator.get_current_address();
-                var next_internal_address_info = await internal_generator.generate_next_address();
-                
-                const asset_utxos = await electrum.blockchain_scripthash_listassets(current_asset_address.scripthash)
+                    var current_asset_address = asset_generator.get_current_address();
+                    var next_asset_address_info = await asset_generator.generate_next_address();
+                    var current_internal_address = internal_generator.get_current_address();
+                    var next_internal_address_info = await internal_generator.generate_next_address();
                     
-                var valid_utxo = asset_utxos.filter(utxo => utxo.name == MAIN_ASSET + '!');
-                while (valid_utxo.length < 1) {
-                    console.log('Unable to find asset utxo! Looking back... Current index: ' + (asset_generator._index - 1));
-                    asset_generator._index -= 2;
-                    if (asset_generator._index < 0) {
-                        throw 'No asset utxo found!';
-                    }
-                    current_asset_address = asset_generator.get_current_address();
-                    next_asset_address_info = await asset_generator.generate_next_address();
                     const asset_utxos = await electrum.blockchain_scripthash_listassets(current_asset_address.scripthash)
-                    valid_utxo = asset_utxos.filter(utxo => utxo.name == MAIN_ASSET + '!');
-                }
-
-                const utxo_data = valid_utxo[0];
-                const asset_txin = await electrum.blockchain_transaction_get(utxo_data.tx_hash);
-                psbt.addInput({
-                    hash: utxo_data.tx_hash,
-                    index: utxo_data.tx_pos,
-                    nonWitnessUtxo: Buffer.from(
-                        asset_txin,
-                        'hex',
-                    )
-                });
-
-                if (current_internal_address) {
-                    let utxos = await electrum.blockchain_scripthash_listunspent(current_internal_address.scripthash);
-                    while (utxos.length < 1) {
-                        console.log('Unable to find internal utxo! Looking back... Current index: ' + (internal_generator._index - 1));
-                        const history = await electrum.blockchain_scripthash_get_history(current_internal_address.scripthash);
-                        if (history.length > 0) {
-                            console.log('Found an internal address with history. Stopping here.');
-                            break;
+                        
+                    var valid_utxo = asset_utxos.filter(utxo => utxo.name == MAIN_ASSET + '!');
+                    while (valid_utxo.length < 1) {
+                        console.log('Unable to find asset utxo! Looking back... Current index: ' + (asset_generator._index - 1));
+                        asset_generator._index -= 2;
+                        if (asset_generator._index < 1) {
+                            throw 'No asset utxo found!';
                         }
-                        internal_generator._index -= 2;
-                        if (internal_generator._index < 1) {
-                            console.log('No internal utxo found. Resetting.');
-                            break;
-                        }
-                        current_internal_address = internal_generator.get_current_address();
-                        next_internal_address_info = await internal_generator.generate_next_address();
-                        utxos = await electrum.blockchain_scripthash_listunspent(current_internal_address.scripthash)
+                        current_asset_address = asset_generator.get_current_address();
+                        next_asset_address_info = await asset_generator.generate_next_address();
+                        const asset_utxos = await electrum.blockchain_scripthash_listassets(current_asset_address.scripthash)
+                        valid_utxo = asset_utxos.filter(utxo => utxo.name == MAIN_ASSET + '!');
                     }
+
+                    const utxo_data = valid_utxo[0];
+                    const asset_txin = await electrum.blockchain_transaction_get(utxo_data.tx_hash);
+                    psbt.addInput({
+                        hash: utxo_data.tx_hash,
+                        index: utxo_data.tx_pos,
+                        nonWitnessUtxo: Buffer.from(
+                            asset_txin,
+                            'hex',
+                        )
+                    });
+
+                    if (current_internal_address) {
+                        let utxos = await electrum.blockchain_scripthash_listunspent(current_internal_address.scripthash);
+                        while (utxos.length < 1) {
+                            console.log('Unable to find internal utxo! Looking back... Current index: ' + (internal_generator._index - 1));
+                            const history = await electrum.blockchain_scripthash_get_history(current_internal_address.scripthash);
+                            if (history.length > 0) {
+                                console.log('Found an internal address with history. Stopping here.');
+                                break;
+                            }
+                            internal_generator._index -= 2;
+                            if (internal_generator._index < 1) {
+                                console.log('No internal utxo found. Resetting.');
+                                break;
+                            }
+                            current_internal_address = internal_generator.get_current_address();
+                            next_internal_address_info = await internal_generator.generate_next_address();
+                            utxos = await electrum.blockchain_scripthash_listunspent(current_internal_address.scripthash)
+                        }
+                        for (const utxo of utxos) {
+                            const txin = await electrum.blockchain_transaction_get(utxo.tx_hash);
+                            num_internal_inputs += 1;
+                            sats_avail += utxo.value;
+                            psbt.addInput({
+                                hash: utxo.tx_hash,
+                                index: utxo.tx_pos,
+                                nonWitnessUtxo: Buffer.from(
+                                    txin,
+                                    'hex',
+                                )
+                            });
+                        }
+                    }
+
+                    const utxos = await electrum.blockchain_scripthash_listunspent(data.recv.scripthash);
                     for (const utxo of utxos) {
-                        const txin = await electrum.blockchain_transaction_get(utxo.tx_hash);
+                        const txin = await electrum.blockchain_transaction_get(utxo.tx_hash, true);
+                        //console.log(utxo);
+                        //console.log(txin.vout[utxo.tx_pos].scriptPubKey);
                         num_external_inputs += 1;
                         sats_avail += utxo.value;
                         psbt.addInput({
                             hash: utxo.tx_hash,
                             index: utxo.tx_pos,
                             nonWitnessUtxo: Buffer.from(
-                                txin,
+                                txin.hex,
                                 'hex',
-                            )
+                            ),
                         });
                     }
-                }
 
-                const utxos = await electrum.blockchain_scripthash_listunspent(data.recv.scripthash);
-                for (const utxo of utxos) {
-                    const txin = await electrum.blockchain_transaction_get(utxo.tx_hash);
-                    num_external_inputs += 1;
-                    sats_avail += utxo.value;
-                    psbt.addInput({
-                        hash: utxo.tx_hash,
-                        index: utxo.tx_pos,
-                        nonWitnessUtxo: Buffer.from(
-                            txin,
-                            'hex',
-                        )
-                    });
-                }
-
-                if (sats_avail < (5 * COIN)) {
-                    throw 'Not enough RVN to mint!';
-                }
-
-                psbt.addOutput({
-                    address: network.unique_mint_address,
-                    value: 5 * COIN,
-                });
-
-                const owner = MAIN_ASSET + '!';
-                const owner_len = owner.length;
-                const asset_part_pre = Buffer.from('72766e74' + owner_len.toString(16).padStart(2, '0'), 'hex');
-                const asset_part_asset = Buffer.from(owner, 'ascii');
-                const asset_part_post = Buffer.from('00e1f5050000000075', 'hex');
-                const asset_prefix = Buffer.from('c0' + get_op_push(asset_part_pre.length + asset_part_asset.length + asset_part_post.length - 1), 'hex');
-                const final_script = Buffer.concat([next_asset_address_info.script, asset_prefix, asset_part_pre, asset_part_asset, asset_part_post]);
-
-                const script = bitcoin.address.toOutputScript(data.to, network);
-                const new_asset = MAIN_ASSET + '#' + data.name;
-                const new_asset_len = new_asset.length
-                const new_asset_part_pre = Buffer.from('72766e71' + new_asset_len.toString(16).padStart(2, '0'), 'hex');
-                const new_asset_part_asset = Buffer.from(new_asset, 'ascii');
-                const new_asset_part_pre_ipfs = Buffer.from('00e1f505000000000000', 'hex');
-                const new_asset_part_ipfs = Buffer.from((data.ipfs ? '01' + base58.decode(data.ipfs).toHex() +  '75' : '0075'), 'hex');
-                const new_asset_prefix = Buffer.from('c0' + get_op_push(new_asset_part_pre.length + new_asset_part_asset.length + new_asset_part_pre_ipfs.length + new_asset_part_ipfs.length - 1 ), 'hex');
-
-                const final_new_script = Buffer.concat([script, new_asset_prefix, new_asset_part_pre, new_asset_part_asset, new_asset_part_pre_ipfs, new_asset_part_ipfs]);
-
-                const asset_node = asset_root.derive(current_asset_address.index);
-                const internal_node = current_internal_address ? internal_root.derive(current_internal_address.index) : null;
-                console.log(data.recv);
-                const external_node = external_root.derive(data.recv.index);
-
-                const temp_psbt = psbt.clone();
-
-                temp_psbt.addOutput({
-                    address: next_internal_address_info.address,
-                    value: sats_avail - (5 * COIN),
-                });
-
-                temp_psbt.addOutput({
-                    script: final_new_script,
-                    value: 0,
-                });
-
-                temp_psbt.addOutput({
-                    script: final_script,
-                    value: 0,
-                });
-
-                temp_psbt.signInput(0, asset_node);
-                for (let i = 0; i < num_internal_inputs; i++) {
-                    temp_psbt.signInput(1 + i, internal_node);
-                }
-                console.log(num_internal_inputs);
-                console.log(num_external_inputs);
-                console.log(temp_psbt);
-                for (let i = 0; i < num_external_inputs; i++) {
-                    console.log(1 + num_internal_inputs + i);
-                    temp_psbt.signInput(1 + num_internal_inputs + i, external_node);
-                }
-
-                temp_psbt.finalizeAllInputs();
-                const psbt_size = Math.floor(temp_psbt.extractTransaction().toHex().length / 2);
-                
-                psbt.addOutput({
-                    address: next_internal_address_info.address,
-                    value: sats_avail - (5 * COIN) - (1050 * psbt_size),
-                });
-                psbt.addOutput({
-                    script: final_script,
-                    value: 0,
-                });
-                psbt.addOutput({
-                    script: final_new_script,
-                    value: 0,
-                });
-
-                psbt.signInput(0, asset_node);
-                for (let i = 0; i < num_internal_inputs; i++) {
-                    psbt.signInput(1 + i, internal_node);
-                }
-                for (let i = 0; i < num_external_inputs; i++) {
-                    psbt.signInput(1 + num_internal_inputs + i, external_node);
-                }
-
-                psbt.finalizeAllInputs();
-                const final_tx = psbt.extractTransaction().toHex();
-
-                electrum.blockchain_transaction_broadcast(final_tx)
-                .then(res => {
-                    console.log(res);
-                    if (channel) {
-                        channel.send('<@' + data.requestor + '>\nYour asset, ' + MAIN_ASSET + '#' + data.name + ' has been sent!\n'+res);
+                    if (sats_avail < (5 * COIN)) {
+                        throw 'Not enough RVN to mint!';
                     }
-                    data.complete = true;
-                    remove_asset_request(data.name);
-                    add_or_modify_completed_asset_request_info(data.name, data);
-                })
-                .catch(err => {
+
+                    psbt.addOutput({
+                        address: network.unique_mint_address,
+                        value: 5 * COIN,
+                    });
+
+                    const owner = MAIN_ASSET + '!';
+                    const owner_len = owner.length;
+                    const asset_part_pre = Buffer.from('72766e74' + owner_len.toString(16).padStart(2, '0'), 'hex');
+                    const asset_part_asset = Buffer.from(owner, 'ascii');
+                    const asset_part_post = Buffer.from('00e1f5050000000075', 'hex');
+                    const asset_prefix = Buffer.from('c0' + get_op_push(asset_part_pre.length + asset_part_asset.length + asset_part_post.length - 1), 'hex');
+                    const final_script = Buffer.concat([next_asset_address_info.script, asset_prefix, asset_part_pre, asset_part_asset, asset_part_post]);
+
+                    const script = bitcoin.address.toOutputScript(data.to, network);
+                    const new_asset = MAIN_ASSET + '#' + data.name;
+                    const new_asset_len = new_asset.length
+                    const new_asset_part_pre = Buffer.from('72766e71' + new_asset_len.toString(16).padStart(2, '0'), 'hex');
+                    const new_asset_part_asset = Buffer.from(new_asset, 'ascii');
+                    const new_asset_part_pre_ipfs = Buffer.from('00e1f505000000000000', 'hex');
+                    const new_asset_part_ipfs = Buffer.from((data.ipfs ? '01' + base58.decode(data.ipfs).toHex() +  '75' : '0075'), 'hex');
+                    const new_asset_prefix = Buffer.from('c0' + get_op_push(new_asset_part_pre.length + new_asset_part_asset.length + new_asset_part_pre_ipfs.length + new_asset_part_ipfs.length - 1 ), 'hex');
+
+                    const final_new_script = Buffer.concat([script, new_asset_prefix, new_asset_part_pre, new_asset_part_asset, new_asset_part_pre_ipfs, new_asset_part_ipfs]);
+
+                    const asset_node = asset_root.derive(current_asset_address.index);
+                    const internal_node = current_internal_address ? internal_root.derive(current_internal_address.index) : null;
+                    const external_node = external_root.derive(data.recv.index);
+
+                    const temp_psbt = psbt.clone();
+
+                    temp_psbt.addOutput({
+                        address: next_internal_address_info.address,
+                        value: sats_avail - (5 * COIN),
+                    });
+
+                    temp_psbt.addOutput({
+                        script: final_new_script,
+                        value: 0,
+                    });
+
+                    temp_psbt.addOutput({
+                        script: final_script,
+                        value: 0,
+                    });
+
+                    temp_psbt.signInput(0, asset_node);
+                    for (let i = 0; i < num_internal_inputs; i++) {
+                        temp_psbt.signInput(1 + i, internal_node);
+                    }
+                    for (let i = 0; i < num_external_inputs; i++) {
+                        temp_psbt.signInput(1 + num_internal_inputs + i, external_node);
+                    }
+
+                    temp_psbt.finalizeAllInputs();
+                    const psbt_size = Math.floor(temp_psbt.extractTransaction().toHex().length / 2);
+                    
+                    psbt.addOutput({
+                        address: next_internal_address_info.address,
+                        value: sats_avail - (5 * COIN) - (1050 * psbt_size),
+                    });
+                    psbt.addOutput({
+                        script: final_script,
+                        value: 0,
+                    });
+                    psbt.addOutput({
+                        script: final_new_script,
+                        value: 0,
+                    });
+
+                    psbt.signInput(0, asset_node);
+                    for (let i = 0; i < num_internal_inputs; i++) {
+                        psbt.signInput(1 + i, internal_node);
+                    }
+                    for (let i = 0; i < num_external_inputs; i++) {
+                        psbt.signInput(1 + num_internal_inputs + i, external_node);
+                    }
+
+                    psbt.finalizeAllInputs();
+                    const final_tx = psbt.extractTransaction().toHex();
+
+                    await electrum.blockchain_transaction_broadcast(final_tx)
+                        .then(res => {
+                            if (channel) {
+                                channel.send('<@' + data.requestor + '>\nYour asset, ' + MAIN_ASSET + '#' + data.name + ' has been sent!\n'+res);
+                            }
+                            data.complete = true;
+                            remove_asset_request(data.name);
+                            add_or_modify_completed_asset_request_info(data.name, data);
+                        })
+                        .catch(err => {
+                            console.log(err);
+                            if (channel) {
+                                channel.send('<@' + data.requestor + '>\nSomething went wrong! Ping @kralverde#0550');
+                            }
+                        });
+                }).catch(err => {
                     console.log(err);
                     if (channel) {
                         channel.send('<@' + data.requestor + '>\nSomething went wrong! Ping @kralverde#0550');
