@@ -716,8 +716,9 @@ const ipfs_client = ipfsAPI.create();
             if (interaction.member.id in snowflake_to_asset) {
                 const asset = snowflake_to_asset[interaction.member.id];
                 const data = _waiting_assets[asset];
-                electrum.blockchain_scripthash_unsubscribe(data.recv.scripthash).catch(e => console.log('Unsubscribe 1: ' + e));
+                const scripthash_to_remove = data.recv.scripthash;
                 remove_asset_request(asset);
+                electrum.blockchain_scripthash_unsubscribe(scripthash_to_remove).catch(e => console.log('Unsubscribe 1: ' + e));
                 await interaction.reply({ content: 'Your request was removed!', ephemeral: true });
             } else {
                 await interaction.reply({ content: 'You don\'t have any current asset requests!', ephemeral: true });
