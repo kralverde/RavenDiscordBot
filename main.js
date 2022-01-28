@@ -84,7 +84,7 @@ class AddressStateBuilder {
                 await this._db.put(this._db_key, this._index)
             } catch (e) {
                 //TODO: Some kind of exit
-                console.log(err);
+                console.log('Generate next address failure: ' + e);
             }
             ret_val = {
                 index: index,
@@ -506,10 +506,10 @@ const ipfs_client = ipfsAPI.create();
                             data.complete = true;
                             remove_asset_request(data.name);
                             add_or_modify_completed_asset_request_info(data.name, data);
-                            electrum.blockchain_scripthash_unsubscribe(data.recv.scripthash).catch(console.log(e => console.log('Unsubscribe: ' + e)));
+                            electrum.blockchain_scripthash_unsubscribe(data.recv.scripthash).catch(e => console.log('Unsubscribe: ' + e));
                         })
                         .catch(err => {
-                            console.log(err);
+                            console.log('Broadcast: ' +  err);
                             if (channel) {
                                 channel.send('<@' + data.requestor + '>\nSomething went wrong! Ping @kralverde#0550');
                             }
@@ -532,7 +532,7 @@ const ipfs_client = ipfsAPI.create();
             } else {
             }
 
-        } catch (e) {console.log(e)} 
+        } catch (e) {console.log('Broadcast 2:' + e)} 
     }
 
     /* End Utility */
@@ -544,7 +544,7 @@ const ipfs_client = ipfsAPI.create();
         let [ scripthash, status ] = ret;
         electrum.blockchain_scripthash_get_balance(scripthash).then(async res => {
             await handle_scripthash_and_amount(scripthash, res.confirmed, res.unconfirmed);
-        }).catch(console.log);
+        }).catch(e => console.log('subscribe event: ' + e));
     });
     
     /* Initialize Discord Commands */
@@ -651,7 +651,7 @@ const ipfs_client = ipfsAPI.create();
                     let ipfs_length = 0;
                     try {
                         ipfs_length = base58.decode(ipfs).length;
-                    } catch (e) {console.log(e)}
+                    } catch (e) {}
                     
                     if (ipfs.startsWith('Qm') && ipfs_length == 34) {
                         const data = _waiting_assets[asset];
@@ -716,7 +716,7 @@ const ipfs_client = ipfsAPI.create();
             if (interaction.member.id in snowflake_to_asset) {
                 const asset = snowflake_to_asset[interaction.member.id];
                 const data = _waiting_assets[asset];
-                electrum.blockchain_scripthash_unsubscribe(data.recv.scripthash).catch(console.log(e => console.log('Unsubscribe 1: ' + e)));
+                electrum.blockchain_scripthash_unsubscribe(data.recv.scripthash).catch(e => console.log('Unsubscribe 1: ' + e));
                 remove_asset_request(asset);
                 await interaction.reply({ content: 'Your request was removed!', ephemeral: true });
             } else {
@@ -862,5 +862,5 @@ const ipfs_client = ipfsAPI.create();
             })
         }),
         client.login(discord_token),
-    ]).catch(e => console.log(e));
+    ]).catch(e => console.log('Big error: ' + e));
 })();
