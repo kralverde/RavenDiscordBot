@@ -25,10 +25,12 @@
     "bitcoinjs-lib": "github:kralverde/bitcoinjs-lib",
     "discord-api-types": "^0.26.1",
     "discord.js": "^13.6.0",
+    "diskusage": "^1.1.3",
     "dotenv": "^14.2.0",
     "electrum-client": "github:kralverde/node-electrum-ravencoin-client",
+    "ipfs-http-client": "^56.0.0",
     "level": "^7.0.1",
-    "lru-cache-node": "^1.1.0",
+    "multiformats": "github:multiformats/js-multiformats",
     "tiny-secp256k1": "^2.2.0"
   }
 }
