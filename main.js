@@ -31,6 +31,7 @@ const RAVENCOIN = {
     scriptHash: 0x7A,
     wif: 0x80,
     unique_mint_address: 'RXissueUniqueAssetXXXXXXXXXXWEAe58',
+    ticker: 'RVN',
   };
 
 const RAVENCOIN_TESTNET = {
@@ -44,9 +45,10 @@ const RAVENCOIN_TESTNET = {
     scriptHash: 196,
     wif: 239,
     unique_mint_address: 'n1issueUniqueAssetXXXXXXXXXXS4695i',
+    ticker: 'tRVN',
   };
 
-const MAIN_ASSET = 'COMMUNITY_TEST';
+const MAIN_ASSET = process.env.MAIN_ASSET;
 const COIN = 100000000;
 
 const MINT_COST = 5.1;
@@ -225,17 +227,23 @@ const ipfs_client = ipfsAPI.create();
         }
     }
 
+    function escapeMarkdown(text) {
+        var unescaped = text.replace(/\\(\*|_|`|~|\\)/g, '$1'); // unescape any "backslashed" character
+        var escaped = unescaped.replace(/(\*|_|`|~|\\)/g, '\\$1'); // escape *, _, `, ~, \
+        return escaped;
+      }
+
     function already_have_data_embed(data) {
         return new MessageEmbed()
                     .setColor('#009900')
                     .setTitle('Asset Request Information')
                     .addFields(
                         { name: 'You already have a request! Run /clear to remove it.', value: '\u200B' },
-                        { name: 'Asset', value: MAIN_ASSET + '#' + data.name },
+                        { name: 'Asset', value: MAIN_ASSET + '#' + escapeMarkdown(data.name) },
                         { name: 'To Address', value: data.to},
                         { name: 'IPFS', value: data.ipfs ? data.ipfs : 'None' },
-                        { name: 'Send ' + data.amount + 'RVN to this address to recieve your asset.', value: data.recv.address },
-                        { name: 'Currently:', value: + data.loaded + 'RVN' }
+                        { name: 'Send ' + data.amount + network.ticker + ' to this address to recieve your asset.', value: data.recv.address },
+                        { name: 'Currently:', value: + data.loaded + network.ticker }
                     );
     }
 
@@ -244,12 +252,12 @@ const ipfs_client = ipfsAPI.create();
                     .setColor('#0099ff')
                     .setTitle('Unique Asset Mint Request')
                     .addFields(
-                        { name: 'Asset', value: MAIN_ASSET + '#' + data.name },
+                        { name: 'Asset', value: MAIN_ASSET + '#' + escapeMarkdown(data.name) },
                         { name: 'To Address', value: data.to },
                         { name: 'IPFS', value: data.ipfs ? data.ipfs : 'None' },
                         { name: '\u200B', value: '\u200B' },
-                        { name: 'Send ' + data.amount + 'RVN to this address to recieve your asset.', value: data.recv.address },
-                        { name: '\u200B', value: '[Reply](https://support.discord.com/hc/en-us/articles/360057382374-Replies-FAQ) to this message or mention <@' + discord_id + '> to get information about funding. Send a IPFS hash or a file (if you want to pay for hosting) to update the IPFS hash. Remember to run /alive to double check the bot is still running before sending any RVN!' }
+                        { name: 'Send ' + data.amount + network.ticker + ' to this address to recieve your asset.', value: data.recv.address },
+                        { name: '\u200B', value: '[Reply](https://support.discord.com/hc/en-us/articles/360057382374-Replies-FAQ) to this message or mention <@' + discord_id + '> to get information about funding. Send a IPFS hash or a file (if you want to pay for hosting) to update the IPFS hash. Remember to run /alive to double check the bot is still running before sending any ' + network.ticker + '!' }
                     );
     }
 
@@ -258,11 +266,11 @@ const ipfs_client = ipfsAPI.create();
                     .setColor('#0099cc')
                     .setTitle('Unique Asset Mint Request')
                     .addFields(
-                        { name: 'Asset', value: MAIN_ASSET + '#' + data.name },
+                        { name: 'Asset', value: MAIN_ASSET + '#' + escapeMarkdown(data.name) },
                         { name: 'To Address', value: data.to},
                         { name: 'IPFS', value: data.ipfs ? data.ipfs : 'None' },
-                        { name: 'Send ' + data.amount + 'RVN to this address to recieve your asset.', value: data.recv.address },
-                        { name: 'Currently:', value: + data.loaded + 'RVN' }
+                        { name: 'Send ' + data.amount + network.ticker + ' to this address to recieve your asset.', value: data.recv.address },
+                        { name: 'Currently:', value: + data.loaded + network.ticker }
                     );
     }
 
@@ -312,6 +320,7 @@ const ipfs_client = ipfsAPI.create();
                 return;
             }
             const asset = scripthash_to_asset[scripthash];
+            console.log('Got info for ' + scripthash + ' associated with ' + asset);
             const data = _waiting_assets[asset];
 
             data.loaded = (confirmed + unconfirmed) / COIN;
@@ -415,7 +424,7 @@ const ipfs_client = ipfsAPI.create();
                     }
 
                     if (sats_avail < (5 * COIN)) {
-                        throw 'Not enough RVN to mint!';
+                        throw 'Not enough ' + network.ticker + ' to mint!';
                     }
 
                     psbt.addOutput({
@@ -501,7 +510,7 @@ const ipfs_client = ipfsAPI.create();
                     await electrum.blockchain_transaction_broadcast(final_tx)
                         .then(res => {
                             if (channel) {
-                                channel.send('<@' + data.requestor + '>\nYour asset, ' + MAIN_ASSET + '#' + data.name + ' has been sent!\n'+res);
+                                channel.send('<@' + data.requestor + '>\nYour asset, ' + MAIN_ASSET + '#' + escapeMarkdown(data.name) + ' has been sent!\n'+res);
                             }
                             data.complete = true;
                             remove_asset_request(data.name);
@@ -527,7 +536,7 @@ const ipfs_client = ipfsAPI.create();
                 }
             } else if ((confirmed + unconfirmed) > 0) {
                 if (channel) {
-                    channel.send('<@' + data.requestor + '>\nThere is now ' + (data.loaded) + 'RVN associated with ' + data.recv.address + '. ' + data.amount + 'RVN is required.');
+                    channel.send('<@' + data.requestor + '>\nThere is now ' + (data.loaded) + network.ticker + ' associated with ' + data.recv.address + '. ' + data.amount + network.ticker + ' is required.');
                 }
             } else {
             }
@@ -555,7 +564,7 @@ const ipfs_client = ipfsAPI.create();
             .setDescription('Your current request, if any.'),
         new SlashCommandBuilder()
             .setName('clear')
-            .setDescription('Clear an asset request. WILL NOT REIMBURSE ANY RVN SENT.'),
+            .setDescription('Clear an asset request. WILL NOT REIMBURSE ANY ' + network.ticker + ' SENT.'),
         new SlashCommandBuilder()
             .setName('removeipfs')
             .setDescription('Removes the IPFS hash associated with your request'),
@@ -629,6 +638,7 @@ const ipfs_client = ipfsAPI.create();
         if (message.author.id in snowflake_to_asset) {
             const asset = snowflake_to_asset[message.author.id];
             const file_url = message.attachments.first()?.url;
+            const data = _waiting_assets[asset];
             if (file_url) {
                 let free = 0;
                 diskusage.check('/', (err, info) => {
@@ -641,6 +651,10 @@ const ipfs_client = ipfsAPI.create();
                 try {
                     const file = await ipfs_client.add(ipfsAPI.urlSource(file_url));
                     
+                    if (data.hosted) {
+                        ipfs_client.pin.rm(data.ipfs);
+                    }
+
                     const ipfs = file.cid.toV0().toString();
 
                     if (file.size > 8 * 1024 * 1024) {
@@ -654,13 +668,18 @@ const ipfs_client = ipfsAPI.create();
                     } catch (e) {}
                     
                     if (ipfs.startsWith('Qm') && ipfs_length == 34) {
-                        const data = _waiting_assets[asset];
                         data.ipfs = ipfs;
                         data.amount += data.hosted ? PIN_COST : 0;
                         data.hosted = true;
                         add_or_modify_asset_request_info(asset, data);
-                        message.channel.send('Your asset\'s IPFS hash has been changed: ' + ipfs + '\nYour new total is: ' + data.amount + 'RVN.');
+                        message.channel.send('Your asset\'s IPFS hash has been changed: ' + ipfs + '\nYour new total is: ' + data.amount + network.ticker + '.');
                     } else {
+                        data.ipfs = null;
+                        if (data.hosted) {
+                            data.amount -= PIN_COST;
+                        }
+                        data.hosted = false;
+                        add_or_modify_asset_request_info(asset, data);
                         message.channel.send('We generated an invalid IPFS hash! Ping @kralverde!');
                     }
                 } catch (e) {
@@ -676,7 +695,6 @@ const ipfs_client = ipfsAPI.create();
                 } catch (e) {}
 
                 if (maybe_ipfs.startsWith('Qm') && ipfs_length == 34) {
-                    const data = _waiting_assets[asset];
                     if (data.hosted) {
                         await ipfs_client.pin.rm(data.ipfs);
                         data.amount -= PIN_COST;
@@ -687,7 +705,6 @@ const ipfs_client = ipfsAPI.create();
                     add_or_modify_asset_request_info(asset, data);
                     message.channel.send('Your asset\'s IPFS hash has been changed: ' + maybe_ipfs);
                 } else {
-                    const data = _waiting_assets[asset];
                     const embed = current_embed_from_request_data(data);
                     message.channel.send({ embeds: [ embed ] });
                 }
@@ -716,6 +733,9 @@ const ipfs_client = ipfsAPI.create();
             if (interaction.member.id in snowflake_to_asset) {
                 const asset = snowflake_to_asset[interaction.member.id];
                 const data = _waiting_assets[asset];
+                if (data.hosted) {
+                    await ipfs_client.pin.rm(data.ipfs);
+                }
                 const scripthash_to_remove = data.recv.scripthash;
                 remove_asset_request(asset);
                 electrum.blockchain_scripthash_unsubscribe(scripthash_to_remove).catch(e => console.log('Unsubscribe 1: ' + e));
@@ -776,7 +796,7 @@ const ipfs_client = ipfsAPI.create();
         } else if (interaction.commandName === 'alive') {
             await interaction.reply({ content: 'Good to go :smile:', ephemeral: true });
         } else if (interaction.commandName === 'info') {
-            await interaction.reply('This bot lets you mint unique assets to an address of your choice for a fee of ' + MINT_COST + ' RVN. This bot will also host a file to associate with your unique asset for an extra ' + PIN_COST + 'RVN. Run /mint with (optionally) no IPFS value for more information.');
+            await interaction.reply('This bot lets you mint unique assets to an address of your choice for a fee of ' + MINT_COST + network.ticker + '. This bot will also host a file to associate with your unique asset for an extra ' + PIN_COST + network.ticker + '. Run /mint with (optionally) no IPFS value for more information.');
         } else if (interaction.commandName === 'mint') {
             if (interaction.member.id in snowflake_to_asset) {
                 const data = _waiting_assets[snowflake_to_asset[interaction.member.id]];
@@ -838,12 +858,12 @@ const ipfs_client = ipfsAPI.create();
             scripthash_to_asset[external_address_info.scripthash] = name;
             snowflake_to_asset[interaction.member.id] = name;
             timestamp_to_asset[now] = name;
+            add_or_modify_asset_request_info(name, data);
 
-            electrum.blockchain_scripthash_subscribe(external_address_info.scripthash);
-            electrum.blockchain_scripthash_get_balance(external_address_info.scripthash).then(async res => {
+            await electrum.blockchain_scripthash_subscribe(external_address_info.scripthash);
+            await electrum.blockchain_scripthash_get_balance(external_address_info.scripthash).then(async res => {
                 await handle_scripthash_and_amount(external_address_info.scripthash, res.confirmed, res.unconfirmed);
             });
-            add_or_modify_asset_request_info(name, data);
             const embed = new_embed_from_request_data(data);
 
             await interaction.editReply({ embeds: [ embed ] });
@@ -861,6 +881,14 @@ const ipfs_client = ipfsAPI.create();
                     await handle_scripthash_and_amount(scripthash, res.confirmed, res.unconfirmed);
                 });
             })
+        })
+        .then(() => {
+            try {
+                (async function loopback() {
+                    electrum.server_ping();
+                    setTimeout(loopback, 300000);
+                })();
+            } catch (e) {console.log('Electrum: ' + e);}
         }),
         client.login(discord_token),
     ]).catch(e => console.log('Big error: ' + e));
